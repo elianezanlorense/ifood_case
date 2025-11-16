@@ -1,0 +1,15 @@
+# Dados grandes - não versionar
+code/data_output/
+dados/stage/
+dados/silver/
+dados/gold/
+
+# Arquivos de dados em geral
+*.parquet
+*.csv
+*.pkl
+
+# Python cache
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
