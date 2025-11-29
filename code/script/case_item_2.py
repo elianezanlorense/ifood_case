@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[22]:
+# In[4]:
+import sys
+import os
 
+# CORRIGIR A IMPORTAÇÃO - adicionar path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 import importlib
 import utilities.functions as functions
@@ -13,16 +17,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 import json
 
-import sys
-import os
 
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-import utilities.functions as functions
 
 from utilities.functions import (
-    retidos11,
-    calcula_viabilidade_wide,
-    segmentacao_3_otimizada
+    segmentacao_3_otimizada,
+
 
 
 )
@@ -37,16 +36,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'code'))
 
 import numpy as np
 os.makedirs('../Resultados', exist_ok=True)
-df = pd.read_parquet("dados/gold/df_decil.parquet")
+df = pd.read_parquet("dados/gold/publico_janeiro_dezembro_.parquet")
 
-df.head()
+print(df.columns)
 
 
 # In[20]:
 
-
-df['decil_1_num'] = df['decil_1'].str.extract(r'(\d+)').astype(int)
-df['decil_12_num'] = df['decil_12'].str.extract(r'(\d+)').astype(int)
+print(df['decil'].unique())
+#df['decil_1_num'] = df['decil_1'].str.extract(r'(\d+)').astype(int)
+#df['decil_12_num'] = df['decil_12'].str.extract(r'(\d+)').astype(int)
 df['delta_decil'] = df['decil_12_num'] - df['decil_1_num']
 
 

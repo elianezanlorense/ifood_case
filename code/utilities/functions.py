@@ -554,7 +554,8 @@ def gerar_resumo_decis(df_decil):
     return clientes_por_decil_target
 
 
-    
+
+
 def cria_base_decil_wide(
     df,
     mes_0,
@@ -605,8 +606,10 @@ def cria_base_decil_wide(
     base_m1 = df_base[df_base[col_mes] == mes_1].copy()
 
     def atribui_decil(valor, decil_dict):
-        for decil, (vmin, vmax) in decil_dict.items():
-            if vmin <= valor <= vmax:
+    # Ordena decis do maior para o menor (10, 9, 8...)
+        for decil in sorted(decil_dict.keys(), reverse=True):
+            vmin = decil_dict[decil][0]
+            if valor >= vmin:
                 return decil
         return np.nan
 
@@ -660,6 +663,7 @@ def cria_base_decil_wide(
     )
 
     return wide_final, decil_dict  # AGORA RETORNA AMBOS
+
 
 
 

@@ -85,7 +85,7 @@ resultados, agg = calcula_viabilidade(
     margin_rate=0.12     
 )
 
-resultados
+print(agg)
 
 
 # Calculando retencao separadamente para outliers
@@ -152,7 +152,9 @@ plt.xlabel('Mês')
 plt.ylabel('Total Gasto no Mês')
 plt.legend(title='Grupo')
 plt.tight_layout()
-plt.show()
+
+plt.savefig("boxplot_valor_gasto_por_mes_e_target.png")
+plt.close()
 
 
 # In[26]:
@@ -181,4 +183,4 @@ resultados_out, agg_out = calcula_viabilidade(
 )
 
 resultados_out
-
+print(agg_out)

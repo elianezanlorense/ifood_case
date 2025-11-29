@@ -36,7 +36,7 @@ def executar_analise_completa():
     
     try:
         # Load data
-        df_pub_u = pd.read_parquet("../dados/gold/df_pub_un.parquet")
+        df_pub_u = pd.read_parquet("dados/gold/df_pub_un.parquet")
   
         
         # Summary
@@ -48,7 +48,7 @@ def executar_analise_completa():
                       .nunique()
                       .reset_index(name='numero_clientes_distintos'))
         print(clientes_mes)
-        
+        df_pub_u=df_pub_u.head(100)
         # Matriz de migração
         matriz_migracao(df_pub_u, mes_0=12, mes_1=1)
         print(matriz_migracao)
@@ -94,21 +94,23 @@ def executar_analise_completa():
             prefixo_pedidos="num_pedidos_mes",
             prefixo_valor="total_amount_mes"
         )
+
+# 2) Aplicar
+        publico_janeiro_dezembro['decil'] = publico_janeiro_dezembro['total_amount_mes'].apply(
+             lambda x: max([decil for decil, (min_val, max_val) in decil_dict.items() if x >= min_val]))
         
+
         #Salva decil
         save_parquet(df_decil, "gold", "df_decil.parquet")
         
-        decil_dict_json = {k: list(v) for k, v in decil_dict.items()}
-        with open('../dados/gold/decil_dictionary.json', 'w') as f:
-            json.dump(decil_dict_json, f, indent=2)
-        
+
         # Descritiva decil
         decil_summary = gerar_resumo_decis(df_decil)
-        decil_summary.to_csv('../Resultados/decil_summary.csv', index=False)
+        decil_summary.to_csv('Resultados/decil_summary.csv', index=False)
         
         # Corte - numero de pedidos
         pedidos_hist = resumo_coorte_ativa(publico_janeiro_dezembro,mes_coorte_inicio=12,mes_coorte_fim=1)
-        pedidos_hist.to_csv('../Resultados/pedidos_hist.csv', index=False)
+        pedidos_hist.to_csv('Resultados/pedidos_hist.csv', index=False)
         return True
         
     except Exception as e:
