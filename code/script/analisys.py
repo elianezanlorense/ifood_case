@@ -95,10 +95,14 @@ def executar_analise_completa():
             prefixo_valor="total_amount_mes"
         )
 
+        print(df_decil['decil_1'].unique())
 # 2) Aplicar
-        publico_janeiro_dezembro['decil'] = publico_janeiro_dezembro['total_amount_mes'].apply(
-             lambda x: max([decil for decil, (min_val, max_val) in decil_dict.items() if x >= min_val]))
+       # publico_janeiro_dezembro['decil'] = publico_janeiro_dezembro['total_amount_mes'].apply(
+            # lambda x: max([decil for decil, (min_val, max_val) in decil_dict.items() if x >= min_val]))
         
+        decil_dict_json = {k: list(v) for k, v in decil_dict.items()}
+        with open('dados/gold/decil_dictionary.json', 'w') as f:
+                json.dump(decil_dict_json, f, indent=2)
 
         #Salva decil
         save_parquet(df_decil, "gold", "df_decil.parquet")

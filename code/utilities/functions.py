@@ -246,94 +246,6 @@ def matriz_migracao(df, mes_0, mes_1):
 
 
 
-
-    """
-    Pandas implementation of the order processing pipeline:
-      - Creates unique_order_hash
-      - Calculates num_pedidos (historic and monthly)
-      - Calculates prev_order_time and diff_days
-      - Calculates monthly distribution (df_percent)
-    
-    Returns:
-      - df_final (Pandas DataFrame) already sorted by:
-          customer_id DESC, order_created_at ASC
-      - df_percent (Pandas DataFrame with monthly distributions)
-    """
-
-    # Ensure 'order_created_at' is datetime and drop 'order_id'
-   
-    df['order_created_at'] = pd.to_datetime(df['order_created_at'])
-    df['order_created_month'] = df['order_created_at'].dt.month
-    df = df.drop(columns=['order_id'], errors='ignore')
-
-    # 1️⃣ Create unique_order_hash
-    # Using a simple combination for Pandas.
-    df["unique_order_hash"] = (
-        df["customer_id"].astype(str) + "||" + 
-        df["order_created_at"].dt.strftime('%Y-%m-%d %H:%M:%S')
-    )
-
-    # --- Metrics and Distributions ---
-
-    # 2️⃣ Contagens (df_percent)
-    df_counts = (
-        df.groupby(["order_created_month", "is_target", "active"])
-        .size()
-        .reset_index(name='count')
-    )
-    
-    # Calculate total_month and percentual using a grouped transform/apply
-    df_percent = df_counts.copy()
-    
-    # Calculate total_month (like PySpark's Window.partitionBy)
-    df_percent["total_month"] = (
-        df_percent.groupby("order_created_month")["count"].transform('sum')
-    )
-
-    df_percent["percentual"] = (
-        (df_percent["count"] / df_percent["total_month"]) * 100
-    ).round(2)
-    
-    # 3️⃣ Calculate num_pedidos (Historic and Monthly)
-    
-    # Orders per user per month
-    df['num_pedidos_mes'] = (
-        df.groupby(["customer_id", "is_target", "order_created_month"])
-        .unique_order_hash.transform('count')
-    )
-    
-    # Orders per user historic
-    df['num_pedidos_hist'] = (
-        df.groupby(["customer_id", "is_target"])
-        .unique_order_hash.transform('count')
-    )
-    
-    # 4️⃣ Calculate prev_order_time and diff_days (Window function)
-    
-    # Sort the data first, which is essential for the shift/lag operation
-    df = df.sort_values(by=['customer_id', 'order_created_at'], ascending=[True, True])
-    
-    # Calculate previous order time (Lag/Shift) partitioned by customer_id
-    df["prev_order_time"] = (
-        df.groupby("customer_id")['order_created_at']
-        .shift(1) # shift(1) is equivalent to lag(1)
-    )
-    
-    # Calculate difference in days (datediff)
-    df["diff_days"] = (
-        df['order_created_at'] - df['prev_order_time']
-    ).dt.days # .dt.days extracts the integer day difference
-
-    # 5️⃣ Final Sorting and Return
-    # Certifique-se de que a variável de retorno é a df_final classificada
-    df_final = df.sort_values(
-        by=['customer_id', 'order_created_at'], 
-        ascending=[False, True] # customer_id DESC, order_created_at ASC
-    )
-
-    # CORREÇÃO: Retornar a tupla (df_final, df_percent)
-    return df_final, df_percent
-
 def resumo_coorte_ativa(df: pd.DataFrame, mes_coorte_inicio: int,mes_coorte_fim: int) -> pd.DataFrame:
     """
     Filtra clientes ativos no mês de início (coorte), pivota a contagem de pedidos
@@ -554,6 +466,7 @@ def gerar_resumo_decis(df_decil):
     return clientes_por_decil_target
 
 
+###decil
 
 
 def cria_base_decil_wide(
@@ -606,7 +519,6 @@ def cria_base_decil_wide(
     base_m1 = df_base[df_base[col_mes] == mes_1].copy()
 
     def atribui_decil(valor, decil_dict):
-    # Ordena decis do maior para o menor (10, 9, 8...)
         for decil in sorted(decil_dict.keys(), reverse=True):
             vmin = decil_dict[decil][0]
             if valor >= vmin:
@@ -662,27 +574,19 @@ def cria_base_decil_wide(
         .reset_index()
     )
 
-    return wide_final, decil_dict  # AGORA RETORNA AMBOS
+    return wide_final, decil_dict  
 
 
-
+####Viabilidade financeira
 
 def calcula_viabilidade(df, 
-                        mes_campanha=12, 
-                        mes_seguinte=1, 
-                        coupon_value=10.0, 
-                        margin_rate=0.12):
+                                mes_campanha=12, 
+                                mes_seguinte=1, 
+                                coupon_value=10.0, 
+                                margin_rate=0.12):
     """
-    df: DataFrame com as colunas:
-        - customer_id
-        - is_target ('target' / 'control')
-        - order_created_month (int)
-        - num_pedidos_mes
-        - total_amount_mes
-    mes_campanha: mês em que o cupom foi disponibilizado (ex: 12)
-    mes_seguinte: mês seguinte para retenção (ex: 1)
-    coupon_value: valor médio do cupom (R$)
-    margin_rate: margem líquida sobre GMV (0.12 = 12%)
+    FUNÇÃO: Calcula a viabilidade financeira e retorna DataFrame completo
+    RETORNA: DataFrame único com TODOS os parâmetros calculados
     """
 
     # Filtra só meses relevantes
@@ -702,47 +606,69 @@ def calcula_viabilidade(df,
 
     # Helper para pegar linha de cada grupo/mês
     def get_row(grupo, mes):
-        return agg[(agg["is_target"] == grupo) & (agg["order_created_month"] == mes)].iloc[0]
+        result = agg[(agg["is_target"] == grupo) & (agg["order_created_month"] == mes)]
+        return result.iloc[0] if len(result) > 0 else None
 
-    # Dezembro (mês da campanha)
+    # Busca os dados
     row_t_dec = get_row("target", mes_campanha)
     row_c_dec = get_row("control", mes_campanha)
-
-    # Janeiro (mês seguinte)
     row_t_jan = get_row("target", mes_seguinte)
     row_c_jan = get_row("control", mes_seguinte)
 
-    # --- Pedidos por cliente (normalizados) ---
-    # dezembro
+    # Verifica se todos os dados necessários existem
+    if any(row is None for row in [row_t_dec, row_c_dec, row_t_jan, row_c_jan]):
+        missing = []
+        if row_t_dec is None: missing.append(f"target_{mes_campanha}")
+        if row_c_dec is None: missing.append(f"control_{mes_campanha}")
+        if row_t_jan is None: missing.append(f"target_{mes_seguinte}")
+        if row_c_jan is None: missing.append(f"control_{mes_seguinte}")
+        raise ValueError(f"Dados faltantes para: {', '.join(missing)}")
+
+
+    # Pedidos
     pedidos_cli_t_dec = row_t_dec["pedidos"] / row_t_dec["clientes"]
     pedidos_cli_c_dec = row_c_dec["pedidos"] / row_c_dec["clientes"]
-
-    # janeiro
     pedidos_cli_t_jan = row_t_jan["pedidos"] / row_t_jan["clientes"]
     pedidos_cli_c_jan = row_c_jan["pedidos"] / row_c_jan["clientes"]
 
-    # --- GMV por cliente ---
-    gmv_cli_t_dec = row_t_dec["gmv"] / row_t_dec["clientes"]
-    gmv_cli_c_dec = row_c_dec["gmv"] / row_c_dec["clientes"]
+    pedidos_tot_t_dec = row_t_dec["pedidos"]
+    pedidos_tot_c_dec = row_c_dec["pedidos"]
+    pedidos_tot_t_jan = row_t_jan["pedidos"]
+    pedidos_tot_c_jan = row_c_jan["pedidos"]
 
-    gmv_cli_t_jan = row_t_jan["gmv"] / row_t_jan["clientes"]
-    gmv_cli_c_jan = row_c_jan["gmv"] / row_c_jan["clientes"]
 
-    # --- Incremento de pedidos (Target vs Controle) ---
     inc_pedidos_dec = (pedidos_cli_t_dec - pedidos_cli_c_dec) * row_t_dec["clientes"]
     inc_pedidos_jan = (pedidos_cli_t_jan - pedidos_cli_c_jan) * row_t_jan["clientes"]
     inc_pedidos_total = inc_pedidos_dec + inc_pedidos_jan
 
-    # --- Incremento de GMV ---
-    inc_gmv_dec = (gmv_cli_t_dec - gmv_cli_c_dec) * row_t_dec["clientes"]
-    inc_gmv_jan = (gmv_cli_t_jan - gmv_cli_c_jan) * row_t_jan["clientes"]
-    inc_gmv_total = inc_gmv_dec + inc_gmv_jan
+    # GMV
+    gmv_cli_t_dec = row_t_dec["gmv"] / row_t_dec["clientes"]
+    gmv_cli_c_dec = row_c_dec["gmv"] / row_c_dec["clientes"]
+    gmv_cli_t_jan = row_t_jan["gmv"] / row_t_jan["clientes"]
+    gmv_cli_c_jan = row_c_jan["gmv"] / row_c_jan["clientes"]
 
-    # --- Margem incremental ---
-    margem_incremental = inc_gmv_total * margin_rate
+    gmv_tot_t_dec = row_t_dec["gmv"]
+    gmv_tot_c_dec = row_c_dec["gmv"]
+    gmv_tot_t_jan = row_t_jan["gmv"]
+    gmv_tot_c_jan = row_c_jan["gmv"]
 
-    # --- Custo da campanha ---
-    # premissa: cupom usado 1x por cliente target que fez pedido em dezembro
+    inc_gmv_dec = (gmv_cli_t_dec - gmv_cli_c_dec) * row_t_dec["clientes"]  
+    inc_gmv_jan = (gmv_cli_t_jan - gmv_cli_c_jan) * row_t_jan["clientes"]  
+    
+    inc_gmv_total = inc_gmv_dec + inc_gmv_jan  #
+
+    # Receitas
+    receita_ifood_t_dec = gmv_tot_t_dec * margin_rate
+    receita_ifood_c_dec = gmv_tot_c_dec * margin_rate
+    receita_ifood_t_jan = gmv_tot_t_jan * margin_rate
+    receita_ifood_c_jan = gmv_tot_c_jan * margin_rate
+
+    # Margens
+    margem_incremental_dec = receita_ifood_t_dec - receita_ifood_c_dec
+    margem_incremental_jan = receita_ifood_t_jan - receita_ifood_c_jan
+    margem_incremental_total = margem_incremental_dec + margem_incremental_jan
+
+    # Custos
     base_target_dec = df_use[
         (df_use["order_created_month"] == mes_campanha) & 
         (df_use["is_target"] == "target") &
@@ -750,33 +676,91 @@ def calcula_viabilidade(df,
     ]["customer_id"].nunique()
 
     custo_campanha = base_target_dec * coupon_value
+    dezembro_pos = receita_ifood_t_dec - custo_campanha
 
-    # --- ROI ---
-    lucro_incremental = margem_incremental - custo_campanha
-    roi = lucro_incremental / custo_campanha if custo_campanha > 0 else None
+    # ROI
+    lucro_incremental = margem_incremental_total - custo_campanha
+    roi = (lucro_incremental / custo_campanha) if custo_campanha > 0 else 0
 
-    resultados = {
+    # --- CRIA DATASET ÚNICO COM TUDO ---
+    dados_completos = {
+        # Parâmetros de entrada
+        "mes_campanha": mes_campanha,
+        "mes_seguinte": mes_seguinte,
+        "coupon_value": coupon_value,
+        "margin_rate": margin_rate,
+        
+        # Clientes
+        "clientes_target_dec": row_t_dec["clientes"],
+        "clientes_control_dec": row_c_dec["clientes"],
+        "clientes_target_jan": row_t_jan["clientes"],
+        "clientes_control_jan": row_c_jan["clientes"],
+        "base_target_dec": base_target_dec,
+        
+        # Pedidos totais
+        "pedidos_tot_target_dec": pedidos_tot_t_dec,
+        "pedidos_tot_control_dec": pedidos_tot_c_dec,
+        "pedidos_tot_target_jan": pedidos_tot_t_jan,
+        "pedidos_tot_control_jan": pedidos_tot_c_jan,
+        
+        "pedidos_total_target": pedidos_tot_t_dec + pedidos_tot_t_jan,
+        "pedidos_total_control": pedidos_tot_c_dec + pedidos_tot_c_jan,
+        # Pedidos por cliente
         "pedidos_por_cliente_dec_control": pedidos_cli_c_dec,
         "pedidos_por_cliente_dec_target": pedidos_cli_t_dec,
         "pedidos_por_cliente_jan_control": pedidos_cli_c_jan,
         "pedidos_por_cliente_jan_target": pedidos_cli_t_jan,
+        
+        # Incrementos de pedidos
         "inc_pedidos_dec": inc_pedidos_dec,
         "inc_pedidos_jan": inc_pedidos_jan,
         "inc_pedidos_total": inc_pedidos_total,
+
+        # GMV totais
+        "gmv_tot_target_dec": gmv_tot_t_dec,
+        "gmv_tot_control_dec": gmv_tot_c_dec,
+        "gmv_tot_target_jan": gmv_tot_t_jan,
+        "gmv_tot_control_jan": gmv_tot_c_jan,
+        
+        # GMV por cliente
+        "gmv_por_cliente_dec_control": gmv_cli_c_dec,
+        "gmv_por_cliente_dec_target": gmv_cli_t_dec,
+        "gmv_por_cliente_jan_control": gmv_cli_c_jan,
+        "gmv_por_cliente_jan_target": gmv_cli_t_jan,
+
+        # Incrementos de GMV
         "inc_gmv_dec": inc_gmv_dec,
         "inc_gmv_jan": inc_gmv_jan,
         "inc_gmv_total": inc_gmv_total,
-        "margem_incremental": margem_incremental,
-        "base_target_dec": base_target_dec,
+
+        # Receitas iFood
+        "receita_ifood_t_dec": receita_ifood_t_dec,
+        "receita_ifood_c_dec": receita_ifood_c_dec,
+        "receita_ifood_t_jan": receita_ifood_t_jan,
+        "receita_ifood_c_jan": receita_ifood_c_jan,
+
+        # Margens incrementais
+        "margem_incremental_dec": margem_incremental_dec,
+        "margem_incremental_jan": margem_incremental_jan,
+        "margem_incremental_total": margem_incremental_total,
+
+        # Custos e lucro
         "custo_campanha": custo_campanha,
+        "dezembro_pos": dezembro_pos,
         "lucro_incremental": lucro_incremental,
         "roi": roi,
-        "coupon_value": coupon_value,
-        "margin_rate": margin_rate,
+
+        # Métricas consolidadas
+        "gmv_total_target": gmv_tot_t_dec + gmv_tot_t_jan,
+        "gmv_total_control": gmv_tot_c_dec + gmv_tot_c_jan
     }
 
-    return resultados, agg
+    # Cria DataFrame único
+    dataset_completo = pd.DataFrame([dados_completos])
+    
+    return dataset_completo
 
+#Retencao
 
 def analisar_retencao(df):
 
@@ -816,6 +800,7 @@ def analisar_retencao(df):
 
     return resultado 
 
+#Segmentacao
 def segmentacao_3_otimizada(df):
     """
     Classifica mobilidade e direção de forma VETORIZADA
@@ -835,17 +820,12 @@ def segmentacao_3_otimizada(df):
         df['delta_decil'] > 0,
         df['delta_decil'] == 0
     ]
-    choices_dir = ["Upgrade", "Downgrade", "Estável"]
+    choices_dir = ["Downgrade","Upgrade", "Estável"]
     df['direcao'] = np.select(conditions_dir, choices_dir, default="Estável")
     
     return df
 
-# df com colunas:
-# ['customer_id', 'is_target', 'decil_1', 'decil_12',
-#  'num_pedidos_mes_1', 'num_pedidos_mes_12',
-#  'total_amount_mes_1', 'total_amount_mes_12',
-#  'decil_1_num', 'decil_12_num', 'delta_decil',
-#  'segmento_mobilidade', 'direcao', 'categoria_segmento']
+### retidos
 
 def retidos11(df, mes0=1, mes1=12, pedidos=1, por_segmento=False):
     """
@@ -1059,3 +1039,856 @@ def calcula_viabilidade_wide(df,
     }
 
     return resultados, agg
+
+
+
+
+import numpy as np
+import pandas as pd
+from statsmodels.stats.proportion import proportions_ztest, proportion_confint
+
+import numpy as np
+from statsmodels.stats.power import TTestIndPower
+import math
+
+
+import pandas as pd
+import numpy as np
+from statsmodels.stats.proportion import proportions_ztest
+
+from scipy import stats
+from scipy.stats import mannwhitneyu, ttest_ind
+from statsmodels.stats.proportion import proportions_ztest
+
+
+from statsmodels.stats.power import TTestIndPower
+
+def calcular_mde_por_janela(df, power_desejado=0.8, alpha=0.05):
+    """
+    Calcula MDE para cada janela temporal do teste A/B
+    """
+    resultados_mde = []
+    colunas_flags = [c for c in df.columns if c.startswith("converteu_")]
+    
+    for col in colunas_flags:
+        # Filtra apenas os conversores desta janela
+        df_janela = df[df[col] == 1]
+        
+        target_data = df_janela[df_janela['is_target'] == 'target']['order_total_amount']
+        control_data = df_janela[df_janela['is_target'] == 'control']['order_total_amount']
+        
+        n_target = len(target_data)
+        n_control = len(control_data)
+        
+        if n_target > 1 and n_control > 1:
+            std_pooled = np.sqrt(((n_target-1)*target_data.std()**2 + (n_control-1)*control_data.std()**2) / (n_target + n_control - 2))
+            
+            # Calcula MDE
+            analysis = TTestIndPower()
+            effect_size_mde = analysis.solve_power(
+                nobs1=n_target,
+                power=power_desejado,
+                alpha=alpha,
+                ratio=n_control/n_target
+            )
+            
+            mde_reais = effect_size_mde * std_pooled
+            
+            # Effect size real observado
+            effect_size_real = (target_data.mean() - control_data.mean()) / std_pooled
+            
+        else:
+            mde_reais = effect_size_mde = effect_size_real = std_pooled = np.nan
+        
+        resultados_mde.append({
+            'janela': col,
+            'mde_reais': mde_reais,
+            'mde_effect_size': effect_size_mde,
+            'effect_size_real': effect_size_real,
+            'amostra_target': n_target,
+            'amostra_control': n_control,
+            'std_pooled': std_pooled
+        })
+    
+    return pd.DataFrame(resultados_mde)
+
+def verificar_poder_janelas(df_resultados, alpha=0.05):
+    """
+    Verifica o poder estatístico para cada janela do teste A/B
+    """
+    power_analysis = TTestIndPower()
+    resultados = []
+    
+    for _, row in df_resultados.iterrows():
+        if not pd.isna(row['cohen_d']) and row['total_target'] > 0:
+            poder = power_analysis.solve_power(
+                effect_size=abs(row['cohen_d']),  # valor absoluto
+                nobs1=row['total_target'],
+                alpha=alpha
+            )
+        else:
+            poder = None
+        
+        resultados.append({
+            'janela': row['janela'],
+            'cohen_d': row['cohen_d'],
+            'amostra_target': row['total_target'],
+            'amostra_control': row['total_control'],
+            'poder_estatistico': poder
+        })
+    
+    return pd.DataFrame(resultados)
+
+def teste_ab_completo_por_janela(df, alpha=0.05):
+    """
+    Realiza teste A/B completo para múltiplas janelas temporais
+    """
+    
+    resultados = []
+    colunas_flags = [c for c in df.columns if c.startswith("converteu_")]
+
+    control_full = df[df['is_target'] == 'control']
+    target_full = df[df['is_target'] == 'target']
+
+    for col in colunas_flags:
+        # ---------- TESTE DE PROPORÇÃO ----------
+        conv_control = control_full[col].sum()
+        conv_target = target_full[col].sum()
+
+        total_control = control_full['customer_id'].nunique()
+        total_target = target_full['customer_id'].nunique()
+
+        taxa_control = conv_control / total_control if total_control > 0 else 0
+        taxa_target = conv_target / total_target if total_target > 0 else 0
+        diferenca_taxa = taxa_target - taxa_control
+
+        if total_control > 0 and total_target > 0 and conv_control + conv_target > 0:
+            count = np.array([conv_target, conv_control])
+            nobs = np.array([total_target, total_control])
+            z_stat, p_value_prop = proportions_ztest(count, nobs, alternative='two-sided')
+            
+            ep_prop = np.sqrt(taxa_target*(1-taxa_target)/total_target + taxa_control*(1-taxa_control)/total_control)
+            z_critico = stats.norm.ppf(1 - alpha/2)
+            ic_inf_prop = diferenca_taxa - z_critico * ep_prop
+            ic_sup_prop = diferenca_taxa + z_critico * ep_prop
+        else:
+            z_stat, p_value_prop = np.nan, np.nan
+            ic_inf_prop, ic_sup_prop = np.nan, np.nan
+
+        decisao_prop = "Rejeitar H0" if p_value_prop < alpha else "Não rejeitar H0"
+
+        # ---------- TESTES NOS VALORES ----------
+        valores_control = control_full.loc[control_full[col] == 1, 'order_total_amount']
+        valores_target = target_full.loc[target_full[col] == 1, 'order_total_amount']
+
+        if len(valores_control) > 1 and len(valores_target) > 1:
+            # Mann-Whitney U Test
+            stat_mw, p_value_mw = mannwhitneyu(valores_target, valores_control, alternative='two-sided')
+            decisao_mw = "Rejeitar H0" if p_value_mw < alpha else "Não rejeitar H0"
+
+            # Teste T de Welch
+            t_stat_w, p_value_w = ttest_ind(valores_target, valores_control, equal_var=False)
+            decisao_welch = "Rejeitar H0" if p_value_w < alpha else "Não rejeitar H0"
+
+            # Teste T tradicional
+            t_stat_n, p_value_n = ttest_ind(valores_target, valores_control)
+            decisao_t_normal = "Rejeitar H0" if p_value_n < alpha else "Não rejeitar H0"
+
+            # Estatísticas descritivas
+            media_control = valores_control.mean()
+            media_target = valores_target.mean()
+            dp_control = valores_control.std()
+            dp_target = valores_target.std()
+            n_control = len(valores_control)
+            n_target = len(valores_target)
+            diferenca_medias = media_target - media_control
+
+            # Cohen's d
+            dp_pooled = np.sqrt(((n_control-1)*dp_control**2 + (n_target-1)*dp_target**2) / (n_control + n_target - 2))
+            cohen_d = diferenca_medias / dp_pooled if dp_pooled > 0 else 0
+
+            # IC 95% da diferença de médias
+            ep_diferenca = np.sqrt(dp_control**2/n_control + dp_target**2/n_target)
+            t_critico = stats.t.ppf(1 - alpha/2, df=n_control+n_target-2)
+            ic_inferior = diferenca_medias - t_critico * ep_diferenca
+            ic_superior = diferenca_medias + t_critico * ep_diferenca
+
+        else:
+            stat_mw = p_value_mw = np.nan
+            t_stat_w = p_value_w = np.nan
+            t_stat_n = p_value_n = np.nan
+            media_control = media_target = np.nan
+            dp_control = dp_target = np.nan
+            n_control = n_target = 0
+            diferenca_medias = cohen_d = np.nan
+            ic_inferior = ic_superior = np.nan
+            decisao_mw = decisao_welch = decisao_t_normal = "Dados insuficientes"
+
+        resultados.append({
+            'janela': col,
+            'total_control': total_control,
+            'conv_control': conv_control,
+            'total_target': total_target,
+            'conv_target': conv_target,
+            'taxa_control_%': round(taxa_control * 100, 4),
+            'taxa_target_%': round(taxa_target * 100, 4),
+            'diferenca_taxa_%': round(diferenca_taxa * 100, 4),
+            'z_stat': z_stat,
+            'p_value_proporcao': p_value_prop,
+            'ic_inf_prop_%': round(ic_inf_prop * 100, 4) if not np.isnan(ic_inf_prop) else np.nan,
+            'ic_sup_prop_%': round(ic_sup_prop * 100, 4) if not np.isnan(ic_sup_prop) else np.nan,
+            'decisao_proporcao': decisao_prop,
+            'media_valor_control': media_control,
+            'media_valor_target': media_target,
+            'diferenca_medias': diferenca_medias,
+            'cohen_d': cohen_d,
+            'ic_inf_media': ic_inferior,
+            'ic_sup_media': ic_superior,
+            'mw_stat': stat_mw,
+            'mw_p_value': p_value_mw,
+            'decisao_mw': decisao_mw,
+            't_welch_stat': t_stat_w,
+            't_welch_p_value': p_value_w,
+            'decisao_welch': decisao_welch,
+            't_normal_stat': t_stat_n,
+            't_normal_p_value': p_value_n,
+            'decisao_t_normal': decisao_t_normal
+        })
+
+    return pd.DataFrame(resultados)
+
+
+
+
+def teste_proporcao_por_janela(df):
+    resultados = []
+
+    # colunas de conversão (flags)
+    colunas_flags = [c for c in df.columns if c.startswith("converteu_")]
+
+    for col in colunas_flags:
+
+        # separar grupos
+        control = df[df['is_target'] == 'control']
+        target  = df[df['is_target'] == 'target']
+
+        # conversões
+        conv_control = control[col].sum()
+        conv_target  = target[col].sum()
+
+        # totais
+        total_control = control['customer_id'].nunique()
+        total_target  = target['customer_id'].nunique()
+
+        # teste de proporção
+        count = np.array([conv_target, conv_control])
+        nobs  = np.array([total_target, total_control])
+
+        z_stat, p_value = proportions_ztest(count, nobs)
+
+        taxa_control = conv_control / total_control if total_control > 0 else 0
+        taxa_target  = conv_target / total_target if total_target > 0 else 0
+
+        resultados.append({
+            'janela': col,
+            'total_control': total_control,
+            'conv_control': conv_control,
+            'total_target': total_target,
+            'conv_target': conv_target,
+            'taxa_control': round(taxa_control*100, 2),
+            'taxa_target': round(taxa_target*100, 2),
+            'z_stat': z_stat,
+            'p_value': p_value,
+            'significativo_5%': p_value < 0.05
+        })
+
+    return pd.DataFrame(resultados)
+
+
+
+def teste_proporcao_por_janela(df):
+    resultados = []
+
+    # colunas de conversão (flags)
+    colunas_flags = [c for c in df.columns if c.startswith("converteu_")]
+
+    for col in colunas_flags:
+
+        # separar grupos
+        control = df[df['is_target'] == 'control']
+        target  = df[df['is_target'] == 'target']
+
+        # conversões
+        conv_control = control[col].sum()
+        conv_target  = target[col].sum()
+
+        # totais
+        total_control = control['customer_id'].nunique()
+        total_target  = target['customer_id'].nunique()
+
+        # teste de proporção
+        count = np.array([conv_target, conv_control])
+        nobs  = np.array([total_target, total_control])
+
+        z_stat, p_value = proportions_ztest(count, nobs)
+
+        taxa_control = conv_control / total_control if total_control > 0 else 0
+        taxa_target  = conv_target / total_target if total_target > 0 else 0
+
+        resultados.append({
+            'janela': col,
+            'total_control': total_control,
+            'conv_control': conv_control,
+            'total_target': total_target,
+            'conv_target': conv_target,
+            'taxa_control': round(taxa_control*100, 2),
+            'taxa_target': round(taxa_target*100, 2),
+            'z_stat': z_stat,
+            'p_value': p_value,
+            'significativo_5%': p_value < 0.05
+        })
+
+    return pd.DataFrame(resultados)
+
+
+def calcular_poder_do_output(resultado_ab, alpha=0.05):
+    """
+    Calcula o poder estatístico do teste A/B a partir do seu formato de output
+    """
+    
+    try:
+        # Extrair dados do grupo target e control
+        target_row = resultado_ab[resultado_ab['is_target'] == 'target'].iloc[0]
+        control_row = resultado_ab[resultado_ab['is_target'] == 'control'].iloc[0]
+        
+        total_target = int(target_row['total_clientes'])
+        total_control = int(control_row['total_clientes'])
+        
+        # Converter taxa de conversão de porcentagem para decimal
+        p_target = float(target_row['taxa_conversao']) / 100
+        p_control = float(control_row['taxa_conversao']) / 100
+        
+        # ratio entre tamanhos
+        ratio = total_target / total_control
+
+        # effect size (Cohen's h) para duas proporções
+        def cohen_h(p1, p2):
+            return 2 * (math.asin(math.sqrt(p1)) - math.asin(math.sqrt(p2)))
+
+        h = abs(cohen_h(p_target, p_control))
+
+        analysis = TTestIndPower()
+        
+        power = analysis.solve_power(
+            effect_size=h,
+            nobs1=total_control,  # grupo menor como referência
+            alpha=alpha,
+            ratio=ratio,
+            alternative='two-sided'
+        )
+
+        return {
+            'taxa_control': p_control,
+            'taxa_target': p_target,
+            'total_control': total_control,
+            'total_target': total_target,
+            'effect_size_h': h,
+            'alpha': alpha,
+            'power': power,
+            'interpretacao': 'Poder adequado (>80%)' if power > 0.8 else 'Poder insuficiente'
+        }
+        
+    except Exception as e:
+        return {'erro': f'Falha ao calcular poder: {str(e)}'}
+
+
+
+def analisar_ab_completo(
+    df_base,
+    alpha=0.05
+):
+    """
+    df_base deve conter:
+    customer_id, is_target, converteu, order_total_amount, valor_desconto
+    """
+
+    # Resumo por grupo (igual ao seu formato desejado)
+    resumo = (
+        df_base.groupby("is_target", as_index=False)
+        .agg(
+            total_clientes=('customer_id', 'nunique'),
+            clientes_convertidos=('converteu', 'sum'),
+            total_amount=('order_total_amount', 'sum'),
+            total_desconto=('valor_desconto', 'sum')
+        )
+        .assign(
+            taxa_conversao=lambda x: (x['clientes_convertidos'] / x['total_clientes'] * 100).round(2),
+            total_amount_liquido=lambda x: x['total_amount'] - x['total_desconto'],
+            #window_dias=window_days,
+            #desconto_percentual=desconto_p * 100,
+            #mes_base=mes_base
+        )
+    )
+
+    # Análise estatística
+    resultados_estatisticos = []
+
+    # Extrair valores
+    try:
+        total_target = resumo.loc[resumo['is_target'] == 'target', 'total_clientes'].values[0]
+        total_control = resumo.loc[resumo['is_target'] == 'control', 'total_clientes'].values[0]
+
+        conversoes_target = resumo.loc[resumo['is_target'] == 'target', 'clientes_convertidos'].values[0]
+        conversoes_control = resumo.loc[resumo['is_target'] == 'control', 'clientes_convertidos'].values[0]
+    except:
+        return resumo  # Retorna pelo menos o resumo básico
+
+    if total_target > 0 and total_control > 0 and (conversoes_target + conversoes_control) > 0:
+
+        count = np.array([conversoes_target, conversoes_control])
+        nobs = np.array([total_target, total_control])
+
+        z_stat, p_value = proportions_ztest(count, nobs)
+
+        taxa_target = conversoes_target / total_target
+        taxa_control = conversoes_control / total_control
+        diferenca_absoluta = taxa_target - taxa_control
+        lift_relativo = diferenca_absoluta / taxa_control if taxa_control > 0 else 0
+
+        # Intervalos de confiança
+        ci_target = proportion_confint(conversoes_target, total_target, alpha=alpha)
+        ci_control = proportion_confint(conversoes_control, total_control, alpha=alpha)
+
+        # Adicionar métricas estatísticas ao resumo
+        resumo['z_stat'] = z_stat
+        resumo['p_value'] = p_value
+        resumo['significativo'] = p_value < alpha
+        resumo['lift_relativo'] = lift_relativo
+        resumo['diferenca_absoluta'] = diferenca_absoluta
+        resumo['ic_target_inf'] = ci_target[0]
+        resumo['ic_target_sup'] = ci_target[1]
+        resumo['ic_control_inf'] = ci_control[0]
+        resumo['ic_control_sup'] = ci_control[1]
+
+    return resumo
+
+# Exemplo de uso:
+####################
+def conversao_imediata(
+    df,
+    mes_base=12,
+    r_ordem=2,
+    window_start=1,  # NOVO: início da janela
+    window_end=1,    # NOVO: fim da janela  
+    fill_value=-999
+):
+    """
+    Versão atualizada que aceita janela range (start, end)
+    """
+    # 1) Filtra pedidos do mês
+    df_publico = df[df['order_created_month'] == mes_base].copy()
+
+    # 2) Clientes que fizeram r_ordem-ésimo pedido no mês
+    df_d = df_publico[df_publico['rank_month'] == r_ordem].drop_duplicates().copy()
+
+    # 3) Flag de conversão: dentro da janela range em dias
+    df_d['converteu'f"{window_start}-{window_end}d"] = (df_d['days_since_first_order_month'] >= window_start) & (df_d['days_since_first_order_month'] <= window_end)
+
+    # 4) Mantém só o que precisamos da 2ª compra
+    df_d = df_d[['customer_id', 'converteu'f"{window_start}-{window_end}d", 'days_since_first_order_month', 'order_total_amount']]
+
+    # 5) Base de todos os clientes ativos no mês (um registro por customer_id x is_target)
+    df_publico = df_publico[['customer_id', 'is_target']].drop_duplicates().merge(
+        df_d,
+        on='customer_id',
+        how='left'
+    )
+
+    # 6) Tratar tipos / NaNs
+    df_publico['converteu'f"{window_start}-{window_end}d"] = df_publico['converteu'f"{window_start}-{window_end}d"].fillna(False).astype(int)
+    df_publico['order_total_amount'] = df_publico['order_total_amount'].fillna(0).astype(float)
+
+    # Se quiser -999 onde ainda sobrou NaN (ex: days_since_first_order_month)
+    df_publico = df_publico.fillna(fill_value)
+    df_publico['windows']=f"{window_start}-{window_end}d"
+    # 8) Resumo por grupo
+    resumo = (
+        df_publico.groupby("is_target", as_index=False)
+                  .agg(
+                      total_clientes=('customer_id', 'nunique'),
+                      clientes_convertidos=('converteu'f"{window_start}-{window_end}d", 'sum'),
+                      total_amount=('order_total_amount', 'sum'),
+                     total_amount_convertido=('order_total_amount',lambda x: x[df_publico.loc[x.index, 'converteu'f"{window_start}-{window_end}d"] == 1].sum())
+                  ).assign(
+                taxa_conversao=lambda x: (x['clientes_convertidos'] / x['total_clientes'] * 100).round(2),
+                window_range=f"{window_start}-{window_end}d",
+
+                mes_base=mes_base
+            ).reset_index(drop=True)
+    )
+
+    return resumo, df_publico
+#######################
+def pedidos_group(df, group_vars=None):
+    """
+    Gera análise completa por mês e categoria de pedidos:
+    - Classifica clientes em 1_pedido ou 2+_pedidos
+    - Calcula totais e percentuais por mês
+
+    Retorna um DataFrame com métricas e percentuais.
+    """
+
+    # Definir variáveis de agrupamento padrão
+    if group_vars is None:
+        group_vars = []
+    # Se group_vars for string, converter para lista
+    elif isinstance(group_vars, str):
+        group_vars = [group_vars]
+    
+    # Variáveis base para agrupamento
+    base_group_vars = ['order_created_month', 'customer_id'] + group_vars
+
+    df_analise_completa = (
+        df.groupby(base_group_vars)
+        .agg(
+            total_pedidos=('unique_order_hash', 'count'),
+            total_amount=('order_total_amount', 'sum')
+        )
+        .reset_index()
+        .assign(
+            categoria_pedidos=lambda x: x['total_pedidos']
+                .apply(lambda y: '1_pedido' if y == 1 else '2+_pedidos')
+        )
+        .groupby(['order_created_month', 'categoria_pedidos'] + group_vars)
+        .agg(
+            total_clientes=('customer_id', 'nunique'),
+            total_pedidos=('total_pedidos', 'sum'),
+            total_amount=('total_amount', 'sum'),
+            avg_amount_por_cliente=('total_amount', 'mean')
+        )
+        .reset_index()
+    )
+
+    # Calcular totais por mês (e variáveis adicionais se houver)
+    total_vars = ['order_created_month'] + group_vars
+    
+    totais_mes = (
+        df_analise_completa
+        .groupby(total_vars)
+        .agg(
+            total_clientes_mes=('total_clientes', 'sum'),
+            total_pedidos_mes=('total_pedidos', 'sum'),
+            total_amount_mes=('total_amount', 'sum')
+        )
+        .reset_index()
+    )
+
+    df_analise_completa = (
+        df_analise_completa
+        .merge(totais_mes, on=total_vars)
+        .assign(
+            perc_clientes=lambda x: (x['total_clientes'] / x['total_clientes_mes'] * 100).round(2),
+            perc_pedidos=lambda x: (x['total_pedidos'] / x['total_pedidos_mes'] * 100).round(2),
+            perc_amount=lambda x: (x['total_amount'] / x['total_amount_mes'] * 100).round(2)
+        )
+        .drop(['total_clientes_mes', 'total_pedidos_mes', 'total_amount_mes'], axis=1)
+        .sort_values(['order_created_month', 'categoria_pedidos'] + group_vars)
+        .reset_index(drop=True)
+    )
+
+    return df_analise_completa
+
+
+def criacao_ordens(df, group_vars=None):
+    
+    # Definir variáveis de agrupamento padrão
+    if group_vars is None:
+        group_vars = []
+    # Se group_vars for string, converter para lista
+    elif isinstance(group_vars, str):
+        group_vars = [group_vars]
+    
+    # Variáveis base para agrupamento
+    base_group_vars = ['customer_id', 'order_created_month'] + group_vars
+    
+    df = df.sort_values(base_group_vars + ['order_created_at']).copy()
+
+    g = df.groupby(base_group_vars, sort=False)
+
+    # Rank da ordem
+    df['rank_month'] = g.cumcount() + 1
+
+    # Datas anterior e próxima
+    prev_date = g['order_created_at'].shift()
+    next_date = g['order_created_at'].shift(-1)
+
+    # Diferença entre pedidos
+    df['days_between_orders'] = (df['order_created_at'] - prev_date).dt.days
+    df.loc[df['rank_month'] == 1, 'days_between_orders'] = -9999.0
+
+    # Dias desde a primeira ordem
+    first_date = g['order_created_at'].transform('min')
+    df['days_since_first_order_month'] = (df['order_created_at'] - first_date).dt.days
+    df.loc[df['rank_month'] == 1, 'days_since_first_order_month'] = -999.0
+
+    # Diferença de valor
+    prev_amount = g['order_total_amount'].shift()
+    df['amount_diff_from_previous'] = df['order_total_amount'] - prev_amount
+    df.loc[df['rank_month'] == 1, 'amount_diff_from_previous'] = -999.0
+
+    # % variação
+    df['amount_pct_change_from_previous'] = (
+        (df['order_total_amount'] - prev_amount) / prev_amount * 100
+    ).replace([np.inf, -np.inf], 0).fillna(0)
+
+    # Dias até próxima ordem
+    df['days_until_next_order'] = (next_date - df['order_created_at']).dt.days.fillna(-999.0)
+
+    # Última ordem do mês
+    df['is_last_order_month'] = df['order_created_at'].eq(
+        g['order_created_at'].transform('max')
+    )
+
+    # Métrica final
+    avg_days_first_to_second = df.loc[
+        df['rank_month'] == 2,
+        'days_since_first_order_month'
+    ].mean()
+
+    return df, avg_days_first_to_second
+#################################
+
+    """
+    Gera análise completa por mês e categoria de pedidos:
+    - Classifica clientes em 1_pedido ou 2+_pedidos
+    - Calcula totais e percentuais por mês
+
+    Retorna um DataFrame com métricas e percentuais.
+    """
+
+    # Definir variáveis de agrupamento padrão
+    if group_vars is None:
+        group_vars = []
+    
+    # Variáveis base para agrupamento
+    base_group_vars = ['order_created_month', 'customer_id'] + group_vars
+
+    df_analise_completa = (
+        df.groupby(base_group_vars)
+        .agg(
+            total_pedidos=('unique_order_hash', 'count'),
+            total_amount=('order_total_amount', 'sum')
+        )
+        .reset_index()
+        .assign(
+            categoria_pedidos=lambda x: x['total_pedidos']
+                .apply(lambda y: '1_pedido' if y == 1 else '2+_pedidos')
+        )
+        .groupby(['order_created_month', 'categoria_pedidos'] + group_vars)
+        .agg(
+            total_clientes=('customer_id', 'nunique'),
+            total_pedidos=('total_pedidos', 'sum'),
+            total_amount=('total_amount', 'sum'),
+            avg_amount_por_cliente=('total_amount', 'mean')
+        )
+        .reset_index()
+    )
+
+    # Calcular totais por mês (e variáveis adicionais se houver)
+    total_vars = ['order_created_month'] + group_vars
+    
+    totais_mes = (
+        df_analise_completa
+        .groupby(total_vars)
+        .agg(
+            total_clientes_mes=('total_clientes', 'sum'),
+            total_pedidos_mes=('total_pedidos', 'sum'),
+            total_amount_mes=('total_amount', 'sum')
+        )
+        .reset_index()
+    )
+
+    df_analise_completa = (
+        df_analise_completa
+        .merge(totais_mes, on=total_vars)
+        .assign(
+            perc_clientes=lambda x: (x['total_clientes'] / x['total_clientes_mes'] * 100).round(2),
+            perc_pedidos=lambda x: (x['total_pedidos'] / x['total_pedidos_mes'] * 100).round(2),
+            perc_amount=lambda x: (x['total_amount'] / x['total_amount_mes'] * 100).round(2)
+        )
+        .drop(['total_clientes_mes', 'total_pedidos_mes', 'total_amount_mes'], axis=1)
+        .sort_values(['order_created_month', 'categoria_pedidos'] + group_vars)
+        .reset_index(drop=True)
+    )
+
+    return df_analise_completa
+
+
+############# plot_indicadores_mes_plataforma
+
+def plot_indicadores_mes_plataforma(summary_mes):
+    """
+    Gera gráfico de barras verticais com:
+    - Indicadores (% Clientes, % Pedidos, % Valor Total)
+    - Eixo X organizado por Plataforma
+    - Agrupamento visual por Mês
+    """
+
+    metrics = ['perc_clientes', 'perc_pedidos', 'perc_amount']
+    metric_names = ['% Clientes', '% Pedidos', '% Valor Total']
+
+    data = summary_mes.copy()
+
+    # Ordenar por mês e plataforma
+    data = data.sort_values(['order_created_month', 'origin_platform'])
+
+    # Label por barra (plataforma)
+    data['label'] = data['origin_platform']
+
+    labels = data['label'].tolist()
+    meses = data['order_created_month'].tolist()
+
+    x = np.arange(len(labels))
+    width = 0.25
+    multiplier = 0
+
+    fig, ax = plt.subplots(figsize=(16, 7), layout='constrained')
+
+    indicadores = {
+        '% Clientes': data['perc_clientes'].values,
+        '% Pedidos': data['perc_pedidos'].values,
+        '% Valor Total': data['perc_amount'].values
+    }
+
+    for nome_indicador, valores in indicadores.items():
+        offset = width * multiplier
+        rects = ax.bar(x + offset, valores, width, label=nome_indicador)
+        ax.bar_label(rects, padding=3)
+        multiplier += 1
+
+    # === EIXO X COM PLATAFORMA ===
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(labels, rotation=0)
+
+    # === AGRUPAMENTO VISUAL POR MÊS ===
+    unique_months = data['order_created_month'].unique()
+    start = 0
+
+    for mes in unique_months:
+        count = (data['order_created_month'] == mes).sum()
+        center = start + count / 2 - 0.5
+        ax.text(center, -0.05, str(mes),
+                ha='center', va='top',
+                transform=ax.get_xaxis_transform(),
+                fontsize=11, fontweight='bold')
+        start += count
+
+    ax.set_xlabel('Plataforma')
+    ax.set_ylabel('Percentual')
+    ax.set_title('Indicadores por Mês e Plataforma', fontsize=16, fontweight='bold')
+    ax.legend()
+
+    plt.show()
+
+
+##################
+def gerar_stats(df, group_cols):
+    """
+    df         -> seu DataFrame original
+    group_cols -> lista de colunas para agrupar (ex: ["weekday"], ["weekday","hour"], etc.)
+    """
+
+    df_stats_mes = (
+        df.groupby(['order_created_month'] + group_cols)
+          .agg(
+              total_clientes=('customer_id', 'nunique'),
+              total_pedidos=('unique_order_hash', 'count'),
+              total_ordem=('order_total_amount', 'sum')
+          )
+          .reset_index()
+          .assign(
+              perc_clientes=lambda d: d.groupby('order_created_month')['total_clientes']
+                                         .transform(lambda x: x / x.sum() * 100),
+              perc_pedidos=lambda d: d.groupby('order_created_month')['total_pedidos']
+                                        .transform(lambda x: x / x.sum() * 100),
+              perc_amount=lambda d: d.groupby('order_created_month')['total_ordem']
+                                         .transform(lambda x: x / x.sum() * 100)
+          )
+          .round(2)
+          .sort_values(['order_created_month', 'total_clientes'], ascending=[True, False])
+          .reset_index(drop=True)
+    )
+
+    return df_stats_mes
+
+#################
+def cria_base_decil_wide(
+    df,
+    mes_0,
+    col_cliente="customer_id",
+    col_mes="order_created_month",
+    col_valor="total_amount_mes", 
+    col_target="is_target",
+    n_decis=10,
+    prefixo_decil="decil",
+):
+    # 1) Preparar base do mês de referência
+    cols_base = [col_cliente, col_mes, col_valor, col_target]
+    base_m0 = (
+        df[df[col_mes] == mes_0][cols_base]
+        .drop_duplicates()
+        .reset_index(drop=True)
+    )
+
+    col_decil_m0 = f"{prefixo_decil}_{mes_0}"
+
+    # 2) Criar decis 
+    labels = [f"decil {i+1}" for i in range(n_decis)]
+
+    base_m0[col_decil_m0], bins = pd.qcut(
+        base_m0[col_valor],
+        q=n_decis,
+        labels=labels,
+        retbins=True,
+        duplicates="drop"
+    )
+
+    # 3) Criar dicionário no formato CORRETO: {decil: (min, max)}
+    decil_dict_corrigido = {}
+    for i in range(len(bins) - 1):
+        decil_num = i + 1
+        decil_dict_corrigido[decil_num] = (bins[i], bins[i+1])
+
+    return decil_dict_corrigido
+
+
+#############################################################
+
+def matriz_migracao_n(df, mes_0, mes_1, group_by_extra=None):
+    """Versão compacta"""
+    nome_col_0, nome_col_1 = f"mes_{mes_0}", f"mes_{mes_1}"
+    
+    index_cols = ['customer_id', 'is_target'] + ([] if group_by_extra is None else 
+                [group_by_extra] if isinstance(group_by_extra, str) else group_by_extra)
+    
+    clientes_temp = (
+        df[df['order_created_month'].isin([mes_0, mes_1])]
+        .drop_duplicates(['customer_id', 'order_created_month'] + index_cols[2:])
+        .assign(presenca=1)
+        .pivot_table(index=index_cols, columns='order_created_month', values='presenca', fill_value=0)
+        .reset_index()
+        .rename(columns={mes_0: nome_col_0, mes_1: nome_col_1})
+    )
+    
+    for col in [nome_col_0, nome_col_1]:
+        if col not in clientes_temp.columns:
+            clientes_temp[col] = 0
+        clientes_temp[col] = clientes_temp[col].astype(int)
+    
+    group_by_cols = [nome_col_0, nome_col_1, 'is_target'] + ([] if group_by_extra is None else 
+                   [group_by_extra] if isinstance(group_by_extra, str) else group_by_extra)
+    
+    return (clientes_temp.groupby(group_by_cols).size()
+                        .reset_index(name='total_clientes')
+                        .sort_values([nome_col_0, nome_col_1]))
+

@@ -36,16 +36,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'code'))
 
 import numpy as np
 os.makedirs('../Resultados', exist_ok=True)
-df = pd.read_parquet("dados/gold/publico_janeiro_dezembro_.parquet")
+df = pd.read_parquet("dados/gold/df_decil.parquet")
 
 print(df.columns)
 
 
 # In[20]:
 
-print(df['decil'].unique())
-#df['decil_1_num'] = df['decil_1'].str.extract(r'(\d+)').astype(int)
-#df['decil_12_num'] = df['decil_12'].str.extract(r'(\d+)').astype(int)
+
+df['decil_1_num'] = df['decil_1'].str.extract(r'(\d+)').astype(int)
+df['decil_12_num'] = df['decil_12'].str.extract(r'(\d+)').astype(int)
 df['delta_decil'] = df['decil_12_num'] - df['decil_1_num']
 
 
