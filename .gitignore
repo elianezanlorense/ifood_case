@@ -16,3 +16,4 @@ __pycache__/
 dados/*
 !dados/gold/
 !dados/gold/*
+code/notebook/dados/

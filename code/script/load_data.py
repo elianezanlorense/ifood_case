@@ -67,7 +67,9 @@ def main():
         save_parquet(df_consumer, "bronze", "df_consumer.parquet")
         save_parquet(df_restaurant, "bronze", "df_restaurant.parquet")
         save_parquet(df_ab, "bronze", "df_ab_test.parquet")
-        
+
+        #df_ab=df_ab.head(100) 
+
         # Verifica chabes
         check_key_uniqueness(df_consumer, ["customer_id","active","created_at"])
         check_key_uniqueness(df_restaurant, ["id"])
